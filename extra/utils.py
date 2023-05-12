@@ -9,11 +9,11 @@ def fetch(url):
     with open(fp, "rb") as f:
       dat = f.read()
   else:
-    print("fetching %s" % url)
+    print(f"fetching {url}")
     dat = requests.get(url).content
-    with open(fp+".tmp", "wb") as f:
+    with open(f"{fp}.tmp", "wb") as f:
       f.write(dat)
-    os.rename(fp+".tmp", fp)
+    os.rename(f"{fp}.tmp", fp)
   return dat
 
 def get_parameters(obj):
@@ -30,15 +30,18 @@ def get_parameters(obj):
 
 def my_unpickle(fb0):
   key_prelookup = {}
+
+
   class HackTensor:
     def __new__(cls, *args):
       #print(args)
-      ident, storage_type, obj_key, location, obj_size = args[0][0:5]
+      ident, storage_type, obj_key, location, obj_size = args[0][:5]
       assert ident == 'storage'
 
       ret = np.zeros(obj_size, dtype=storage_type)
       key_prelookup[obj_key] = (storage_type, obj_size, ret, args[2], args[3])
       return ret
+
 
   class HackParameter:
     def __new__(cls, *args):
@@ -47,6 +50,8 @@ def my_unpickle(fb0):
 
   class Dummy:
     pass
+
+
 
   class MyPickle(pickle.Unpickler):
     def find_class(self, module, name):
@@ -58,10 +63,10 @@ def my_unpickle(fb0):
       if name == 'HalfStorage':
         return np.float16
       if module == "torch._utils":
-        if name == "_rebuild_tensor_v2":
-          return HackTensor
-        elif name == "_rebuild_parameter":
+        if name == "_rebuild_parameter":
           return HackParameter
+        elif name == "_rebuild_tensor_v2":
+          return HackTensor
       else:
         try:
           return pickle.Unpickler.find_class(self, module, name)
@@ -70,6 +75,7 @@ def my_unpickle(fb0):
 
     def persistent_load(self, pid):
       return pid
+
 
   return MyPickle(fb0).load(), key_prelookup
 
@@ -103,7 +109,7 @@ def fake_torch_load(b0):
     np_array.shape = np_shape
 
     # numpy stores its strides in bytes
-    real_strides = tuple([x*bytes_size for x in np_strides])
+    real_strides = tuple(x*bytes_size for x in np_strides)
     np_array.strides = real_strides
 
   return ret

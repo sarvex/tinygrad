@@ -5,115 +5,123 @@ from extra.risk import *
 # ************* unary ops *************
 
 class ReLU(Function):
-  def forward(ctx, input):
-    ctx.save_for_backward(input)
+  def forward(self, input):
+    self.save_for_backward(input)
     return risk_unop(input, UnaryOps.RELU)
 
-  def backward(ctx, grad_output):
-    input, = ctx.saved_tensors
+  def backward(self, grad_output):
+    input, = self.saved_tensors
     return risk_binop(grad_output, risk_unop(input, UnaryOps.GT0), BinaryOps.MUL)
 
 class Log(Function):
-  def forward(ctx, input):
-    ctx.save_for_backward(input)
+  def forward(self, input):
+    self.save_for_backward(input)
     return risk_unop(input, UnaryOps.LOG)
 
-  def backward(ctx, grad_output):
-    input, = ctx.saved_tensors
+  def backward(self, grad_output):
+    input, = self.saved_tensors
     return risk_binop(grad_output, input, BinaryOps.DIV)
 
 class Exp(Function):
-  def forward(ctx, input):
+  def forward(self, input):
     ret = risk_unop(input, UnaryOps.EXP)
-    ctx.save_for_backward(ret)
+    self.save_for_backward(ret)
     return ret
 
-  def backward(ctx, grad_output):
-    ret, = ctx.saved_tensors
+  def backward(self, grad_output):
+    ret, = self.saved_tensors
     return risk_binop(grad_output, ret, BinaryOps.MUL)
 
 # ************* binary ops *************
 
 def unbroadcast(out, in_sh):
   # adjoint operation to broadcast is sum. Need to sum all axis with 1 = in_sh[i] < out.shape[i]
-  sum_axis = tuple([i for i in range(len(in_sh)) if in_sh[i]==1 and out.shape[i]>1]) if in_sh != (1,) else None
+  sum_axis = (tuple(i for i in range(len(in_sh))
+                    if in_sh[i] == 1 and out.shape[i] > 1) if in_sh !=
+              (1, ) else None)
   return out.sum(axis=sum_axis).reshape(in_sh)
 
 class Add(Function):
-  def forward(ctx, x, y):
-    ctx.save_for_backward(x.shape, y.shape)
+  def forward(self, x, y):
+    self.save_for_backward(x.shape, y.shape)
     return risk_binop(x, y, BinaryOps.ADD)
 
-  def backward(ctx, grad_output):
-    shape_x, shape_y = ctx.saved_tensors
+  def backward(self, grad_output):
+    shape_x, shape_y = self.saved_tensors
     return unbroadcast(grad_output, shape_x), unbroadcast(grad_output, shape_y)
 
 class Sub(Function):
-  def forward(ctx, x, y):
-    ctx.save_for_backward(x.shape, y.shape)
+  def forward(self, x, y):
+    self.save_for_backward(x.shape, y.shape)
     return risk_binop(x, y, BinaryOps.SUB)
 
-  def backward(ctx, grad_output):
-    shape_x, shape_y = ctx.saved_tensors
+  def backward(self, grad_output):
+    shape_x, shape_y = self.saved_tensors
     return unbroadcast(grad_output, shape_x), unbroadcast(-grad_output, shape_y)
 
 class Mul(Function):
-  def forward(ctx, x, y):
-    ctx.save_for_backward(x, y)
+  def forward(self, x, y):
+    self.save_for_backward(x, y)
     return risk_binop(x, y, BinaryOps.MUL)
 
-  def backward(ctx, grad_output):
-    x,y = ctx.saved_tensors
+  def backward(self, grad_output):
+    x,y = self.saved_tensors
     return unbroadcast(y*grad_output, x.shape), unbroadcast(x*grad_output, y.shape)
 
 class Pow(Function):
-  def forward(ctx, x, y):
-    ctx.save_for_backward(x, y)
+  def forward(self, x, y):
+    self.save_for_backward(x, y)
     return risk_binop(x, y, BinaryOps.POW)
 
-  def backward(ctx, grad_output):
-    x,y = ctx.saved_tensors
+  def backward(self, grad_output):
+    x,y = self.saved_tensors
     return unbroadcast(y * (x**(y-1.0)) * grad_output, x.shape), \
-           unbroadcast((x**y) * np.log(x) * grad_output, y.shape)
+             unbroadcast((x**y) * np.log(x) * grad_output, y.shape)
 
 # ************* processing ops *************
 
 class Matmul(Function):
-  def forward(ctx, input, weight):
-    ctx.save_for_backward(input, weight)
+  def forward(self, input, weight):
+    self.save_for_backward(input, weight)
     return risk_matmul(input, weight)
 
-  def backward(ctx, grad_output):
-    input, weight = ctx.saved_tensors
+  def backward(self, grad_output):
+    input, weight = self.saved_tensors
     grad_input = risk_matmul(grad_output, weight, transpose_w=True)
     grad_weight = risk_matmul(input, grad_output, transpose_x=True)
     return grad_input, grad_weight
 
 class Conv2D(Function):
-  def forward(ctx, x, w, stride=1, groups=1):
-    if type(ctx.stride) == int:
-      ctx.stride = (ctx.stride, ctx.stride)
+  def forward(self, x, w, stride=1, groups=1):
+    if type(self.stride) == int:
+      self.stride = self.stride, self.stride
     cout,cin,H,W = w.shape
-    ys,xs = ctx.stride
+    ys,xs = self.stride
     bs,cin_ = x.shape[0], x.shape[1]
     iy,ix = x.shape[2],x.shape[3]
     oy,ox = (x.shape[2]-(H-ys))//ys, (x.shape[3]-(W-xs))//xs
-    assert cin*ctx.groups == cin_
-    assert cout % ctx.groups == 0
-    rcout = cout//ctx.groups
+    assert cin * self.groups == cin_
+    assert cout % self.groups == 0
+    rcout = cout // self.groups
 
     # if H == 1 and W == 1 and ctx.groups == 1 and ctx.stride == (1,1):
 
-    gx = x.reshape(bs,ctx.groups,cin,x.shape[2],x.shape[3])
-    tx = np.lib.stride_tricks.as_strided(gx,
-      shape=(bs, ctx.groups, cin, oy, ox, H, W),
-      strides=(*gx.strides[0:3], gx.strides[3]*ys, gx.strides[4]*xs, *gx.strides[3:5]),
-      writeable=False,
+    gx = x.reshape(bs, self.groups, cin, x.shape[2], x.shape[3])
+    tx = np.lib.stride_tricks.as_strided(
+        gx,
+        shape=(bs, self.groups, cin, oy, ox, H, W),
+        strides=(
+            *gx.strides[:3],
+            gx.strides[3] * ys,
+            gx.strides[4] * xs,
+            *gx.strides[3:5],
+        ),
+        writeable=False,
     )
-    tw = w.reshape(ctx.groups, rcout, cin, H, W)
-    ctx.save_for_backward(tx, tw, x.shape)
+    tw = w.reshape(self.groups, rcout, cin, H, W)
+    self.save_for_backward(tx, tw, x.shape)
 
-    print((*gx.strides[0:3], gx.strides[3]*ys, gx.strides[4]*xs, *gx.strides[3:5]))
+    print((*gx.strides[:3], gx.strides[3]*ys, gx.strides[4]*xs, *gx.strides[3:5]))
 
     """
     ret = np.zeros((bs,ctx.groups,oy,ox,rcout),dtype=x.dtype)
@@ -129,10 +137,10 @@ class Conv2D(Function):
     riski_dmar(SLOT(1), w)   # groups, rcout, cin, H, W
 
     risk_reset_counts()
-    print(bs, ctx.groups, rcout, oy, ox, cin, H, W)
+    print(bs, self.groups, rcout, oy, ox, cin, H, W)
 
     for B in range(0, bs):
-      if cin == 1 and rcout == 1 and ctx.groups > 1:
+      if cin == 1 and rcout == 1 and self.groups > 1:
         # hmm, this doesn't work, it's not a matmul
         # you always have to loop over the groups, since they aren't joint
         # the idea would be to collapse the HxW into the matmul, but you'd be limited to 9 for 3x3
@@ -222,29 +230,30 @@ class Conv2D(Function):
     #print(x.shape, w.shape, "->", ret.shape)
     return riski_dmaw(SLOT(2), (bs, cout, oy, ox))
 
-  def backward(ctx, grad_output):
+  def backward(self, grad_output):
     bs,_,oy,ox = grad_output.shape
-    tx, tw, x_shape = ctx.saved_tensors
+    tx, tw, x_shape = self.saved_tensors
     _,rcout,cin,H,W = tw.shape
-    ys,xs = ctx.stride
+    ys,xs = self.stride
     OY,OX = x_shape[2:4]
 
-    ggg = grad_output.reshape(bs,ctx.groups,rcout,oy,ox)
+    ggg = grad_output.reshape(bs, self.groups, rcout, oy, ox)
 
-    gdw = np.zeros((ctx.groups,rcout,cin,H,W), dtype=tx.dtype)
-    for g in range(ctx.groups):
+    gdw = np.zeros((self.groups, rcout, cin, H, W), dtype=tx.dtype)
+    for g in range(self.groups):
       #'ikYX,ijYXyx -> kjyx'
       gdw[g] += np.tensordot(ggg[:,g], tx[:,g], ((0,2,3),(0,2,3)))
 
     # needs to be optimized
-    gdx = np.zeros((bs,ctx.groups,cin,OY,OX), dtype=tx.dtype)
+    gdx = np.zeros((bs, self.groups, cin, OY, OX), dtype=tx.dtype)
     for k in range(oy*ox):
       Y, X = k//ox, k%ox
       iY,iX = Y*ys, X*xs
       #gdx[:,:,: , iY:iY+H, iX:iX+W] += np.einsum('igk,gkjyx->igjyx', ggg[:,:,:,Y,X], tw)
-      for g in range(ctx.groups):
+      for g in range(self.groups):
         tg = np.dot(ggg[:,g,:,Y,X].reshape(bs, -1), tw[g].reshape(rcout, -1))
         gdx[:, g, :, iY:iY+H, iX:iX+W] += tg.reshape((bs, cin, H, W))
 
-    return gdx.reshape((bs, ctx.groups*cin, OY, OX)), gdw.reshape((ctx.groups*rcout, cin, H, W))
+    return gdx.reshape((bs, self.groups * cin, OY, OX)), gdw.reshape(
+        (self.groups * rcout, cin, H, W))
 

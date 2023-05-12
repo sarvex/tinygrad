@@ -41,7 +41,7 @@ class ConvBlock:
     self.inp = inp
     #init weights
     self.cweights = [Tensor.uniform(filters, inp if i==0 else filters, conv, conv) for i in range(3)]
-    self.cbiases = [Tensor.uniform(1, filters, 1, 1) for i in range(3)]
+    self.cbiases = [Tensor.uniform(1, filters, 1, 1) for _ in range(3)]
     #init layers
     self._bn = BatchNorm2D(128, training=True)
     self._seb = SqueezeExciteBlock2D(filters)
@@ -61,25 +61,24 @@ class BigConvNet:
     self.weight2 = Tensor.uniform(128,10)
 
   def parameters(self):
-    if DEBUG: #keeping this for a moment
-      pars = [par for par in get_parameters(self) if par.requires_grad]
-      no_pars = 0
-      for par in pars:
-        print(par.shape)
-        no_pars += np.prod(par.shape)
-      print('no of parameters', no_pars)
-      return pars
-    else:
+    if not DEBUG:
       return get_parameters(self)
+    pars = [par for par in get_parameters(self) if par.requires_grad]
+    no_pars = 0
+    for par in pars:
+      print(par.shape)
+      no_pars += np.prod(par.shape)
+    print('no of parameters', no_pars)
+    return pars
 
   def save(self, filename):
-    with open(filename+'.npy', 'wb') as f:
+    with open(f'{filename}.npy', 'wb') as f:
       for par in get_parameters(self):
         #if par.requires_grad:
         np.save(f, par.cpu().data)
 
   def load(self, filename):
-    with open(filename+'.npy', 'rb') as f:
+    with open(f'{filename}.npy', 'rb') as f:
       for par in get_parameters(self):
         #if par.requires_grad:
         try:
@@ -119,10 +118,10 @@ if __name__ == "__main__":
   if len(sys.argv) > 1:
     try:
       model.load(sys.argv[1])
-      print('Loaded weights "'+sys.argv[1]+'", evaluating...')
+      print(f'Loaded weights "{sys.argv[1]}", evaluating...')
       evaluate(model, X_test, Y_test, BS=BS)
     except:
-      print('could not load weights "'+sys.argv[1]+'".')
+      print(f'could not load weights "{sys.argv[1]}".')
 
   if GPU:
     params = get_parameters(model)

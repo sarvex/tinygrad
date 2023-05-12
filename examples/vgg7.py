@@ -14,17 +14,15 @@ CONTEXT = 7
 
 def get_sample_count(samples_dir):
   try:
-    samples_dir_count_file = open(samples_dir + "/sample_count.txt", "r")
-    v = samples_dir_count_file.readline()
-    samples_dir_count_file.close()
+    with open(f"{samples_dir}/sample_count.txt", "r") as samples_dir_count_file:
+      v = samples_dir_count_file.readline()
     return int(v)
   except:
     return 0
 
 def set_sample_count(samples_dir, sc):
-  samples_dir_count_file = open(samples_dir + "/sample_count.txt", "w")
-  samples_dir_count_file.write(str(sc) + "\n")
-  samples_dir_count_file.close()
+  with open(f"{samples_dir}/sample_count.txt", "w") as samples_dir_count_file:
+    samples_dir_count_file.write(str(sc) + "\n")
 
 if len(sys.argv) < 2:
   print("python3 -m examples.vgg7 import MODELJSON MODELDIR")
@@ -75,131 +73,35 @@ def load_and_save(path, save):
     for v in vgg7.get_parameters():
       nansbane(v)
 
-if cmd == "import":
-  src = sys.argv[2]
-  model = sys.argv[3]
-
-  vgg7.load_waifu2x_json(json.load(open(src, "rb")))
-
-  os.mkdir(model)
-  load_and_save(model, True)
-elif cmd == "execute":
-  model = sys.argv[2]
+if cmd == "execute":
   in_file = sys.argv[3]
   out_file = sys.argv[4]
 
+  model = sys.argv[2]
   load_and_save(model, False)
 
   extra.waifu2x.image_save(out_file, vgg7.forward(Tensor(extra.waifu2x.image_load(in_file))).data)
 elif cmd == "execute_full":
-  model = sys.argv[2]
   in_file = sys.argv[3]
   out_file = sys.argv[4]
 
+  model = sys.argv[2]
   load_and_save(model, False)
 
   extra.waifu2x.image_save(out_file, vgg7.forward_tiled(extra.waifu2x.image_load(in_file), 156))
+elif cmd == "import":
+  model = sys.argv[3]
+
+  src = sys.argv[2]
+  vgg7.load_waifu2x_json(json.load(open(src, "rb")))
+
+  os.mkdir(model)
+  load_and_save(model, True)
 elif cmd == "new":
   model = sys.argv[2]
 
   os.mkdir(model)
   load_and_save(model, True)
-elif cmd == "train":
-  model = sys.argv[2]
-  samples_base = sys.argv[3]
-  samples_count = get_sample_count(samples_base)
-  rounds = int(sys.argv[4])
-  rounds_per_save = int(sys.argv[5])
-
-  load_and_save(model, False)
-
-  # Initialize sample probabilities.
-  # This is used to try and get the network to focus on "interesting" samples,
-  #  which works nicely with the microsample system.
-  sample_probs = None
-  sample_probs_path = model + "/sample_probs.bin"
-  try:
-    # try to read...
-    sample_probs = numpy.fromfile(sample_probs_path, "<f8")
-    if sample_probs.shape[0] != samples_count:
-      print("sample probs size != sample count - initializing")
-      sample_probs = None
-  except:
-    # it's fine
-    print("sample probs could not be loaded - initializing")
-    pass
-
-  if sample_probs is None:
-    # This stupidly high amount is used to force an initial pass over all samples
-    sample_probs = numpy.ones(samples_count) * 1000
-
-  print("Training...")
-  # Adam has a tendency to destroy the state of the network when restarted
-  # Plus it's slower
-  optim = SGD(vgg7.get_parameters())
-
-  rnum = 0
-  while True:
-    # The way the -1 option works is that rnum is never -1.
-    if rnum == rounds:
-      break
-
-    sample_idx = 0
-    try:
-      sample_idx = numpy.random.choice(samples_count, p = sample_probs / sample_probs.sum())
-    except:
-      print("exception occurred (PROBABLY value-probabilities-dont-sum-to-1)")
-      sample_idx = random.randint(0, samples_count - 1)
-
-    x_img = extra.waifu2x.image_load(samples_base + "/" + str(sample_idx) + "a.png")
-    y_img = extra.waifu2x.image_load(samples_base + "/" + str(sample_idx) + "b.png")
-
-    sample_x = Tensor(x_img, requires_grad = False)
-    sample_y = Tensor(y_img, requires_grad = False)
-
-    # magic code roughly from readme example
-    # An explaination, in case anyone else has to go down this path:
-    # This runs the actual network normally
-    out = vgg7.forward(sample_x)
-    # Subtraction determines error here (as this is an image, not classification).
-    # *Abs is the important bit* - at least for me, anyway.
-    # The training process seeks to minimize this 'loss' value.
-    # Minimization of loss *tends towards negative infinity*, so without the abs,
-    #  or without an implicit abs (the mul in the README),
-    #  loss will always go haywire in one direction or another.
-    # Mean determines how errors are treated.
-    # Do not use Sum. I tried that. It worked while I was using 1x1 patches...
-    # Then it went exponential.
-    # Also, Mean goes *after* abs. I realize this should have been obvious to me.
-    loss = sample_y.sub(out).abs().mean()
-    # This is the bit where tinygrad works backward from the loss
-    optim.zero_grad()
-    loss.backward()
-    # And this updates the parameters
-    optim.step()
-
-    # warning: used by sample probability adjuster
-    loss_indicator = loss.max().data[0]
-    print("Round " + str(rnum) + " : " + str(loss_indicator))
-
-    if (rnum % rounds_per_save) == 0:
-      print("Saving")
-      load_and_save(model, True)
-      sample_probs.astype("<f8", "C").tofile(sample_probs_path)
-
-    # Update round state
-    # Number
-    rnum = rnum + 1
-    # Probability management
-    # there must always be a probability, no matter how slim, even if loss goes to 0
-    sample_probs[sample_idx] = max(loss_indicator, 1.e-10)
-
-  # if we were told to save every round, we already saved
-  if rounds_per_save != 1:
-    print("Done with all rounds, saving")
-    load_and_save(model, True)
-    sample_probs.astype("<f8", "C").tofile(sample_probs_path)
-
 elif cmd == "samplify":
   a_img = sys.argv[2]
   b_img = sys.argv[3]
@@ -238,13 +140,107 @@ elif cmd == "samplify":
       patch_x = a_img[:, :, posy - CONTEXT : posy + CONTEXT + sample_size, posx - CONTEXT : posx + CONTEXT + sample_size]
       patch_y = b_img[:, :, posy : posy + sample_size, posx : posx + sample_size]
 
-      extra.waifu2x.image_save(samples_base + "/" + str(samples_count) + "a.png", patch_x)
-      extra.waifu2x.image_save(samples_base + "/" + str(samples_count) + "b.png", patch_y)
+      extra.waifu2x.image_save(f"{samples_base}/{str(samples_count)}a.png", patch_x)
+      extra.waifu2x.image_save(f"{samples_base}/{str(samples_count)}b.png", patch_y)
       samples_count += 1
       samples_added += 1
 
-  print("Added " + str(samples_added) + " samples")
+  print(f"Added {str(samples_added)} samples")
   set_sample_count(samples_base, samples_count)
+
+elif cmd == "train":
+  model = sys.argv[2]
+  samples_base = sys.argv[3]
+  samples_count = get_sample_count(samples_base)
+  rounds = int(sys.argv[4])
+  rounds_per_save = int(sys.argv[5])
+
+  load_and_save(model, False)
+
+  # Initialize sample probabilities.
+  # This is used to try and get the network to focus on "interesting" samples,
+  #  which works nicely with the microsample system.
+  sample_probs = None
+  sample_probs_path = f"{model}/sample_probs.bin"
+  try:
+    # try to read...
+    sample_probs = numpy.fromfile(sample_probs_path, "<f8")
+    if sample_probs.shape[0] != samples_count:
+      print("sample probs size != sample count - initializing")
+      sample_probs = None
+  except:
+    # it's fine
+    print("sample probs could not be loaded - initializing")
+  if sample_probs is None:
+    # This stupidly high amount is used to force an initial pass over all samples
+    sample_probs = numpy.ones(samples_count) * 1000
+
+  print("Training...")
+  # Adam has a tendency to destroy the state of the network when restarted
+  # Plus it's slower
+  optim = SGD(vgg7.get_parameters())
+
+  rnum = 0
+  while True:
+    # The way the -1 option works is that rnum is never -1.
+    if rnum == rounds:
+      break
+
+    sample_idx = 0
+    try:
+      sample_idx = numpy.random.choice(samples_count, p = sample_probs / sample_probs.sum())
+    except:
+      print("exception occurred (PROBABLY value-probabilities-dont-sum-to-1)")
+      sample_idx = random.randint(0, samples_count - 1)
+
+    x_img = extra.waifu2x.image_load(f"{samples_base}/{sample_idx}a.png")
+    y_img = extra.waifu2x.image_load(f"{samples_base}/{sample_idx}b.png")
+
+    sample_x = Tensor(x_img, requires_grad = False)
+    sample_y = Tensor(y_img, requires_grad = False)
+
+    # magic code roughly from readme example
+    # An explaination, in case anyone else has to go down this path:
+    # This runs the actual network normally
+    out = vgg7.forward(sample_x)
+    # Subtraction determines error here (as this is an image, not classification).
+    # *Abs is the important bit* - at least for me, anyway.
+    # The training process seeks to minimize this 'loss' value.
+    # Minimization of loss *tends towards negative infinity*, so without the abs,
+    #  or without an implicit abs (the mul in the README),
+    #  loss will always go haywire in one direction or another.
+    # Mean determines how errors are treated.
+    # Do not use Sum. I tried that. It worked while I was using 1x1 patches...
+    # Then it went exponential.
+    # Also, Mean goes *after* abs. I realize this should have been obvious to me.
+    loss = sample_y.sub(out).abs().mean()
+    # This is the bit where tinygrad works backward from the loss
+    optim.zero_grad()
+    loss.backward()
+    # And this updates the parameters
+    optim.step()
+
+    # warning: used by sample probability adjuster
+    loss_indicator = loss.max().data[0]
+    print(f"Round {str(rnum)} : {str(loss_indicator)}")
+
+    if (rnum % rounds_per_save) == 0:
+      print("Saving")
+      load_and_save(model, True)
+      sample_probs.astype("<f8", "C").tofile(sample_probs_path)
+
+    # Update round state
+    # Number
+    rnum = rnum + 1
+    # Probability management
+    # there must always be a probability, no matter how slim, even if loss goes to 0
+    sample_probs[sample_idx] = max(loss_indicator, 1.e-10)
+
+  # if we were told to save every round, we already saved
+  if rounds_per_save != 1:
+    print("Done with all rounds, saving")
+    load_and_save(model, True)
+    sample_probs.astype("<f8", "C").tofile(sample_probs_path)
 
 else:
   print("unknown command")

@@ -29,7 +29,7 @@ def show_labels(prediction, confidence = 0.5, num_classes = 80):
   def numpy_max(input, dim):
     # Input -> tensor (10x8)
     return np.amax(input, axis=dim), np.argmax(input, axis=dim)
-  
+
   # Iterate over batches
   for i in range(prediction.shape[0]):
     img_pred = prediction[i]
@@ -47,7 +47,6 @@ def show_labels(prediction, confidence = 0.5, num_classes = 80):
       image_pred_ = np.reshape(image_pred[np.squeeze(non_zero_ind),:], (-1, 7))
     except:
       print("No detections found!")
-      pass
     classes, indexes = np.unique(image_pred_[:, -1], return_index=True)
     for index, coco_class in enumerate(classes):
       probability = image_pred_[indexes[index]][4] * 100
@@ -70,7 +69,7 @@ def add_boxes(img, prediction):
     return img
   coco_labels = fetch('https://raw.githubusercontent.com/pjreddie/darknet/master/data/coco.names')
   coco_labels = coco_labels.decode('utf-8').split('\n')
-  height, width = img.shape[0:2]
+  height, width = img.shape[:2]
   scale_factor = 608 / width
 
   prediction[:,[1,3]] -= (608 - scale_factor * width) / 2
@@ -89,7 +88,7 @@ def add_boxes(img, prediction):
     c2 = corner1[0] + t_size[0] + 3, corner1[1] + t_size[1] + 4
     img = cv2.rectangle(img, corner1, c2, (255, 0, 0), -1)
     img = cv2.putText(img, label, (corner1[0], corner1[1] + t_size[1] + 4), cv2.FONT_HERSHEY_PLAIN, 1, [225,255,255], 1)
-  
+
   return img
 
 def bbox_iou(box1, box2):
@@ -117,9 +116,7 @@ def bbox_iou(box1, box2):
   b1_area = (b1_x2 - b1_x1 + 1)*(b1_y2 - b1_y1 + 1)
   b2_area = (b2_x2 - b2_x1 + 1)*(b2_y2 - b2_y1 + 1)
 
-  iou = inter_area / (b1_area + b2_area - inter_area)
-
-  return iou
+  return inter_area / (b1_area + b2_area - inter_area)
 
 
 def process_results(prediction, confidence = 0.9, num_classes = 80, nms_conf = 0.4):
@@ -127,12 +124,12 @@ def process_results(prediction, confidence = 0.9, num_classes = 80, nms_conf = 0
   conf_mask = (prediction[:,:,4] > confidence)
   conf_mask = np.expand_dims(conf_mask, 2)
   prediction = prediction * conf_mask
-  
+
   # Non max suppression
   box_corner = prediction
   box_corner[:,:,0] = (prediction[:,:,0] - prediction[:,:,2]/2)
   box_corner[:,:,1] = (prediction[:,:,1] - prediction[:,:,3]/2)
-  box_corner[:,:,2] = (prediction[:,:,0] + prediction[:,:,2]/2) 
+  box_corner[:,:,2] = (prediction[:,:,0] + prediction[:,:,2]/2)
   box_corner[:,:,3] = (prediction[:,:,1] + prediction[:,:,3]/2)
   prediction[:,:,:4] = box_corner[:,:,:4]
 
@@ -146,7 +143,7 @@ def process_results(prediction, confidence = 0.9, num_classes = 80, nms_conf = 0
   def numpy_max(input, dim):
     # Input -> tensor (10x8)
     return np.amax(input, axis=dim), np.argmax(input, axis=dim)
-  
+
   max_conf, max_conf_score = numpy_max(img_pred[:,5:5 + num_classes], 1)
   max_conf_score = np.expand_dims(max_conf_score, axis=1)
   max_conf = np.expand_dims(max_conf, axis=1)
@@ -165,7 +162,7 @@ def process_results(prediction, confidence = 0.9, num_classes = 80, nms_conf = 0
   if image_pred_.shape[0] == 0:
     print("No detections found!")
     return 0
-  
+
   def unique(tensor):
     tensor_np = tensor
     unique_np = np.unique(tensor_np)
@@ -179,35 +176,32 @@ def process_results(prediction, confidence = 0.9, num_classes = 80, nms_conf = 0
     class_mask_ind = np.squeeze(np.nonzero(cls_mask[:,-2]))
     # class_mask_ind = np.nonzero()
     image_pred_class = np.reshape(image_pred_[class_mask_ind], (-1, 7))
-    
+
     # sort the detections such that the entry with the maximum objectness
     # confidence is at the top
     conf_sort_index = np.argsort(image_pred_class[:,4])
     image_pred_class = image_pred_class[conf_sort_index]
     idx = image_pred_class.shape[0]   #Number of detections
-    
+
     for i in range(idx):
       #Get the IOUs of all boxes that come after the one we are looking at 
       #in the loop
       try:
         ious = bbox_iou(np.expand_dims(image_pred_class[i], axis=0), image_pred_class[i+1:])
-      except ValueError:
+      except (ValueError, IndexError):
         break
-  
-      except IndexError:
-        break
-  
+
       # Zero out all the detections that have IoU > treshhold
       iou_mask = np.expand_dims((ious < nms_conf), axis=1)
       image_pred_class[i+1:] *= iou_mask
-  
+
       # Remove the non-zero entries
       non_zero_ind = np.squeeze(np.nonzero(image_pred_class[:,4]))
       image_pred_class = np.reshape(image_pred_class[non_zero_ind], (-1, 7))    
 
     batch_ind = np.array([[0]])
     seq = (batch_ind, image_pred_class)
-    
+
     if not write:
       output = np.concatenate(seq, 1)
       write = True
@@ -241,8 +235,7 @@ def infer(model, img):
   img = img[:,:,::-1].transpose((2,0,1))
   img = img[np.newaxis,:,:,:]/255.0
 
-  prediction = model.forward(Tensor(img))
-  return prediction
+  return model.forward(Tensor(img))
 
 
 def parse_cfg(cfg):
@@ -346,13 +339,9 @@ class Darknet:
 
         # layer
         activation = x["activation"]
-        filters = int(x["filters"])
         padding = int(x["pad"])
-        if padding:
-          pad = (int(x["size"]) - 1) // 2
-        else:
-          pad = 0
-        
+        filters = int(x["filters"])
+        pad = (int(x["size"]) - 1) // 2 if padding else 0
         conv = Conv2d(prev_filters, filters, int(x["size"]), int(x["stride"]), pad, bias = bias)
         module.append(conv)
 
@@ -364,40 +353,35 @@ class Darknet:
         # LeakyReLU activation
         if activation == "leaky":
           module.append(LeakyReLU(0.1))
-      
-      # TODO: Add tiny model
+
       elif module_type == "maxpool":
         size = int(x["size"])
-        stride = int(x["stride"])
-        maxpool = MaxPool2d(size, stride)
+        maxpool = MaxPool2d(size, int(x["stride"]))
         module.append(maxpool)
 
-      elif module_type == "upsample":
-        upsample = Upsample(scale_factor = 2, mode = "nearest")
-        module.append(upsample)
-      
       elif module_type == "route":
         x["layers"] = x["layers"].split(",")
-        # Start of route
-        start = int(x["layers"][0])
         # End if it exists
         try:
           end = int(x["layers"][1])
         except:
           end = 0
-        if start > 0: start = start - index
-        if end > 0: end = end - index
+        start = int(x["layers"][0])
+        if start > 0:
+          start -= index
+        if end > 0:
+          end -= index
         route = EmptyLayer()
         module.append(route)
-        if end < 0:
-          filters = output_filters[index + start] + output_filters[index + end]
-        else:
-          filters = output_filters[index + start]
-        
-      # Shortcut corresponds to skip connection
+        filters = (output_filters[index + start] + output_filters[index + end]
+                   if end < 0 else output_filters[index + start])
       elif module_type == "shortcut":
         module.append(EmptyLayer())
-      
+
+      elif module_type == "upsample":
+        upsample = Upsample(scale_factor = 2, mode = "nearest")
+        module.append(upsample)
+
       elif module_type == "yolo":
         mask = x["mask"].split(",")
         mask = [int(x) for x in mask]
@@ -409,13 +393,13 @@ class Darknet:
 
         detection = DetectionLayer(anchors)
         module.append(detection)
-      
+
       # Append to module_list
       module_list.append(module)
       if filters is not None:
         prev_filters = filters
       output_filters.append(filters)
-    
+
     return (net_info, module_list)
   
   def dump_weights(self):
@@ -429,7 +413,7 @@ class Darknet:
         if conv.bias is not None:
           print("biases")
           print(conv.bias.shape)
-          print(conv.bias.cpu().data[0][0:5])
+          print(conv.bias.cpu().data[0][:5])
         else:
           print("None biases for layer", i)
   
@@ -523,10 +507,10 @@ class Darknet:
     for i, module in enumerate(modules):
       module_type = (module["type"])
       st = time.time()
-      if module_type == "convolutional" or module_type == "upsample":
-        for index, layer in enumerate(self.module_list[i]):
+      if module_type in ["convolutional", "upsample"]:
+        for layer in self.module_list[i]:
           x = layer(x)
-      
+
       elif module_type == "route":
         layers = module["layers"]
         layers = [int(a) for a in layers]
@@ -537,16 +521,16 @@ class Darknet:
           x = outputs[i + (layers[0])]
         else:
           if (layers[1]) > 0: layers[1] = layers[1] - i
-          
+
           map1 = outputs[i + layers[0]]
           map2 = outputs[i + layers[1]]
 
           x = Tensor(np.concatenate((map1.cpu().data, map2.cpu().data), 1))
-      
+
       elif module_type == "shortcut":
         from_ = int(module["from"])
         x = outputs[i - 1] + outputs[i + from_]
-      
+
       elif module_type == "yolo":
         anchors = self.module_list[i][0].anchors
         inp_dim = int(self.net_info["height"])
@@ -560,10 +544,10 @@ class Darknet:
           write = 1
         else:
           detections = Tensor(np.concatenate((detections.cpu().data, x.cpu().data), 1))
-      
+
       # print(module_type, 'layer took %.2f s' % (time.time() - st))
       outputs[i] = x
-    
+
     return detections # Return detections
 
 if __name__ == "__main__":

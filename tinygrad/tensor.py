@@ -29,7 +29,9 @@ class ProfileOp:
       et = (time.time()-self.st)*1000.
       debug_counts[self.name] += 1
       debug_times[self.name] += et
-      print(f"{self.name:>20} : {et:>7.2f} ms {str([y.shape for y in self.x]):>40} {'-> '+str(self.output.shape) if self.output is not None else ''}")
+      print(
+          f"{self.name:>20} : {et:>7.2f} ms {str([y.shape for y in self.x]):>40} {f'-> {str(self.output.shape)}' if self.output is not None else ''}"
+      )
 
 # **** GPU functions ****
 
@@ -324,8 +326,11 @@ class Function:
     for k, v in kwargs.items():
       setattr(ctx, k, v)
     with ProfileOp(ctx.__class__.__name__, x) as po:
-      po.output = ret = Tensor(self.forward(ctx, *[t.data for t in x], **kwargs),
-                   device=ctx.device, requires_grad=any([t.requires_grad for t in x]))
+      po.output = ret = Tensor(
+          self.forward(ctx, *[t.data for t in x], **kwargs),
+          device=ctx.device,
+          requires_grad=any(t.requires_grad for t in x),
+      )
     if ret.requires_grad:
       ret._ctx = ctx
     return ret

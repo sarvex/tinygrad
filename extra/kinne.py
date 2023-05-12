@@ -41,11 +41,11 @@ class KinneDir:
       except:
         # Silence the exception - the directory may (and if reading, does) already exist.
         pass
-    self.base = base + "/snoop_bin_"
+    self.base = f"{base}/snoop_bin_"
     self.next_part_index = 0
     self.save = save
     if save:
-      self.metadata = open(base + "/meta.txt", "w")
+      self.metadata = open(f"{base}/meta.txt", "w")
 
   def parameter(self, t: Tensor):
     """

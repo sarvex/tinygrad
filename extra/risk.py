@@ -41,7 +41,6 @@ from collections import defaultdict
 SZ = 32
 SLOTSIZE = 1024*1024*2   # 5MB, for 20MB total. 8M elements
 sram = np.zeros((SLOTSIZE*4), dtype=np.float32)
-regfile = {}
 SLOT = lambda x: x*SLOTSIZE
 
 from enum import Enum
@@ -52,7 +51,6 @@ class Reg(Enum):
   MATMUL_WEIGHTS = 2
   MATMUL_OUTPUT = 3
 
-# this should be a generic function with a LUT, similar to the ANE
 class UnaryOps(Enum):
   RELU = 0
   EXP = 1
@@ -67,9 +65,7 @@ class BinaryOps(Enum):
   MULACC = 4
   POW = 5
 
-for t in Reg:
-  regfile[t] = np.zeros((SZ, SZ), dtype=np.float32)
-
+regfile = {t: np.zeros((SZ, SZ), dtype=np.float32) for t in Reg}
 # *** profiler ***
 
 cnts = defaultdict(int)
@@ -90,8 +86,8 @@ def risk_print_counts():
   print(cnts)
   print(tcnts)
   print(utils)
-  util_n = sum([k[0]*k[1]*v for k,v in utils.items()])
-  util_d = sum([SZ*SZ*v for k,v in utils.items()])
+  util_n = sum(k[0]*k[1]*v for k,v in utils.items())
+  util_d = sum(SZ*SZ*v for k,v in utils.items())
   print("%.2f GOPS %d maxdma" % ((tcnts['riski_matmul']*SZ*SZ*SZ*2 + tcnts['riski_mulacc']*SZ*SZ*2)*1e-9, maxdma))
   print("ran in %.2f us with util %.2f%% total %.2f us" % (sum(cnts.values())*1e-3, util_n*100/(util_d+1), sum(tcnts.values())*1e-3))
 
@@ -229,10 +225,11 @@ def risk_binop(x, y, op):
 
   dimlist, complist = [], [] # note: len(dimlist) may be less than n_dims
   def push(dim, comp):
-    if len(complist) > 0 and complist[-1] == comp:
+    if complist and complist[-1] == comp:
       dimlist[-1] *= dim
     elif comp != (False, False):
       dimlist.append(dim); complist.append(comp)
+
   for i in range(n_dims): # group together any adjacent dimensions that we can to simplify broadcasting
     push(max(shape_x[i], shape_y[i]), (shape_x[i] > 1, shape_y[i] > 1))
 
@@ -241,7 +238,7 @@ def risk_binop(x, y, op):
   riski_dmar(SLOT(0), x)
   riski_dmar(SLOT(1), y)
   if len(dimlist) <= 1:
-    if len(complist) == 0:
+    if not complist:
       complist = [(True, True)]
     for i in range(0, np.prod(shape_ret), SZ*SZ):
       if complist[0][0]:
@@ -312,7 +309,7 @@ def risk_matmul(x, w, transpose_x=False, transpose_w=False):
   else:
     N = w.shape[-1]
     assert w.shape[-2] == K
-  cnt = np.prod(x.shape[0:-2]) if len(x.shape) > 2 else 1
+  cnt = np.prod(x.shape[:-2]) if len(x.shape) > 2 else 1
 
   # do matmul
   for c in range(cnt):
@@ -332,7 +329,7 @@ def risk_matmul(x, w, transpose_x=False, transpose_w=False):
         riski_store(Reg.MATMUL_OUTPUT, SLOT(2)+c*M*N + m*N+n, N, 1, min(SZ, M-m), min(SZ, N-n))
 
   # copy back from SRAM
-  return riski_dmaw(SLOT(2), (*x.shape[0:-2],M,N))
+  return riski_dmaw(SLOT(2), (*x.shape[:-2], M, N))
 
 import unittest
 class TestRisk(unittest.TestCase):

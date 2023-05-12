@@ -53,7 +53,7 @@ if __name__ == "__main__":
   #BS, steps = 16, 32
   BS, steps = 64 if TINY else 16, 2048
 
-  for i in (t := trange(steps)):
+  for _ in (t := trange(steps)):
     samp = np.random.randint(0, X_train.shape[0], size=(BS))
 
     img = X_train[samp].astype(np.float32)

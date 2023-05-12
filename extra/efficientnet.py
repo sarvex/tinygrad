@@ -150,7 +150,7 @@ class EfficientNet:
     for k,v in b0.items():
       if '_blocks.' in k:
         k = "%s[%s].%s" % tuple(k.split(".", 2))
-      mk = "self."+k
+      mk = f"self.{k}"
       #print(k, v.shape)
       try:
         mv = eval(mk)

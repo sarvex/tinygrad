@@ -83,14 +83,12 @@ if __name__ == "__main__":
   def real_label(bs):
     y = np.zeros((bs,2), np.float32)
     y[range(bs), [1]*bs] = -2.0
-    real_labels = Tensor(y)
-    return real_labels
+    return Tensor(y)
 
   def fake_label(bs):
     y = np.zeros((bs,2), np.float32)
     y[range(bs), [0]*bs] = -2.0 # Can we do label smoothin? i.e -2.0 changed to -1.98789.
-    fake_labels = Tensor(y)
-    return fake_labels
+    return Tensor(y)
 
   def train_discriminator(optimizer, data_real, data_fake):
     real_labels = real_label(batch_size)
