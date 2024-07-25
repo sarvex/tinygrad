@@ -4,7 +4,7 @@ pyopencl==2020.2.2
 requests
 # testing deps
 --find-links https://download.pytorch.org/whl/torch_stable.html
-torch==1.6.0+cpu
+torch==2.2.0
 torchvision==0.7.0+cpu
 pytest
 tqdm
